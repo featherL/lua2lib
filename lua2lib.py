@@ -14,18 +14,18 @@ class Lua2Lib:
         self.info = []
 
     def parse_filename(self, luafile):
-        basename = os.path.basename(luafile)
-        var_name = 'luaJIT_BC_{}'.format(basename.split('.')[0])
-        var_size = '{}_SIZE'.format(var_name)
-
         relative_path = os.path.relpath(luafile, self.input_dir)
         relative_dir = os.path.dirname(relative_path)
         mod_name = relative_path.split('.')[0].replace(os.sep, '.')
-
+        
         if self.prefix:
             mod_name = self.prefix + '.' + mod_name
-            
-        return mod_name, var_name, var_size, relative_dir
+
+        mod_name_c = mod_name.replace('.', '_')
+        var_name = 'luaJIT_BC_{}'.format(mod_name_c)
+        var_size = '{}_SIZE'.format(var_name)
+
+        return mod_name, mod_name_c, var_name, var_size, relative_dir
         
     
     def parse(self):
@@ -34,12 +34,12 @@ class Lua2Lib:
                 if file.endswith('.lua'):
                     lua_file = os.path.join(root, file)
                     
-                    mod_name, var_name, var_size, relative_dir = self.parse_filename(lua_file)
+                    mod_name, mod_name_c, var_name, var_size, relative_dir = self.parse_filename(lua_file)
                     output_file = os.path.join(self.output_dir, relative_dir, file.replace('.lua', '.h'))
 
                     try:
                         os.makedirs(os.path.dirname(output_file), exist_ok=True)
-                        subprocess.check_call([self.luajit, '-b', lua_file, output_file])
+                        subprocess.check_call([self.luajit, '-b', lua_file, output_file, '-n', mod_name_c])
                     except subprocess.CalledProcessError as e:
                         print("Error compiling {}: {}".format(lua_file, e), file=sys.stderr)
                         continue
@@ -47,10 +47,11 @@ class Lua2Lib:
                     self.info.append({
                         'lua_file': lua_file,
                         'mod_name': mod_name,
+                        'mod_name_c': mod_name_c,
                         'var_name': var_name,
                         'var_size': var_size,
                         'output_file': output_file,
-                        'include_name': os.path.relpath(output_file, self.output_dir)
+                        'include_name': os.path.relpath(output_file, self.output_dir).replace(os.sep, '/')
                     })
 
                     print("Compiled {} to {}".format(lua_file, output_file))
@@ -59,7 +60,7 @@ class Lua2Lib:
         template = """
 #include "{include_name}"
 
-static void install_{mod_name_func}(lua_State *L)
+static void install_{mod_name_c}(lua_State *L)
 {{
     linkin_lib_add_by_code(L, "{mod_name}", {var_name}, {var_size});
 }}
@@ -75,12 +76,12 @@ static void install_{mod_name_func}(lua_State *L)
             var_name = i['var_name']
             var_size = i['var_size']
             include_name = i['include_name']
-            mod_name_func = mod_name.replace('.', '_')
+            mod_name_c = i['mod_name_c']
 
-            tmp = template.format(mod_name=mod_name, var_name=var_name, var_size=var_size, include_name=include_name, mod_name_func=mod_name_func)
+            tmp = template.format(mod_name=mod_name, var_name=var_name, var_size=var_size, include_name=include_name, mod_name_c=mod_name_c)
             header_content += tmp
 
-            header_installer += '    install_{mod_name_func}(L);\n'.format(mod_name_func=mod_name_func)
+            header_installer += '    install_{mod_name_c}(L);\n'.format(mod_name_c=mod_name_c)
         
         header_content += header_installer + '}\n\n'
 

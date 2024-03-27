@@ -76,7 +76,7 @@ void linkin_install_searcher(lua_State *L)
     "table.insert(package.searchers, linkin.searcher)\n");
 }
 
-void linkin_lib_add_by_code(lua_State *L, const char *name, const char *code, size_t code_len)
+void linkin_lib_add_by_code(lua_State *L, const char *name, const void *code, size_t code_len)
 {
     // linkin.lib[name] = code
     lua_getglobal(L, "linkin");

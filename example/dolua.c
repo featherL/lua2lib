@@ -1,5 +1,4 @@
 #include <linkin/linkin.h>
-#include <luajit-2.1/lua.h>
 #include <luajit/luajit.h>
 #include <luajit/lauxlib.h>
 #include <luajit/lualib.h>

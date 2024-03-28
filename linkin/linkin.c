@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include <luajit/lauxlib.h>
+#include <stdio.h>
 
 static int linkin_searcher(lua_State *L)
 {
@@ -17,6 +18,7 @@ static int linkin_searcher(lua_State *L)
 
     lua_getfield(L, -1, "lib");
     lua_getfield(L, -1, name);
+
 
     if (lua_isstring(L, -1)) {
         size_t len;
@@ -73,7 +75,11 @@ void linkin_openlib(lua_State *L)
 void linkin_install_searcher(lua_State *L)
 {
     luaL_dostring(L, "linkin = require(\"linkin\")\n"
-    "table.insert(package.searchers, linkin.searcher)\n");
+    "if package.searchers ~= nil then\n"
+    "    table.insert(package.searchers, linkin.searcher)\n"
+    "else\n"
+    "    table.insert(package.loaders, linkin.searcher)\n"
+    "end\n");
 }
 
 void linkin_lib_add_by_code(lua_State *L, const char *name, const void *code, size_t code_len)

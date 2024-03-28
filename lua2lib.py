@@ -18,10 +18,6 @@ class Lua2Lib:
         relative_path = os.path.relpath(luafile, self.input_dir)
         relative_dir = os.path.dirname(relative_path)
         mod_name = relative_path.split('.')[0].replace(os.sep, '.')
-        
-        if self.prefix:
-            mod_name = self.prefix + '.' + mod_name
-
         mod_name_c = mod_name.replace('.', '_')
         var_name = 'luaJIT_BC_{}'.format(mod_name_c)
         var_size = '{}_SIZE'.format(var_name)

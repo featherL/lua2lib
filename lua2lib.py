@@ -8,9 +8,10 @@ class Lua2Lib:
     def __init__(self, input_dir, output_dir, luajit, prefix=''):
         self.input_dir = input_dir
         self.output_dir = output_dir
-        self.luajit = luajit
+        self.luajit = luajit or '/usr/bin/luajit'
+        self.luajit = os.path.abspath(self.luajit)
+        self.lua_path = os.path.abspath(os.path.dirname(self.luajit)) if luajit else None
         self.prefix = prefix
-
         self.info = []
 
     def parse_filename(self, luafile):
@@ -26,7 +27,13 @@ class Lua2Lib:
         var_size = '{}_SIZE'.format(var_name)
 
         return mod_name, mod_name_c, var_name, var_size, relative_dir
-        
+    
+    def convert_lua(self, lua_file, output_file, mod_name_c):
+        try:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            subprocess.check_call([self.luajit, '-b', lua_file, output_file, '-n', mod_name_c], env={'LUA_PATH': self.lua_path + os.sep + '?.lua;;'} if self.lua_path else None)
+        except subprocess.CalledProcessError as e:
+            print("Error compiling {}: {}".format(lua_file, e), file=sys.stderr)
     
     def parse(self):
         for root, _, files in os.walk(self.input_dir):
@@ -37,12 +44,7 @@ class Lua2Lib:
                     mod_name, mod_name_c, var_name, var_size, relative_dir = self.parse_filename(lua_file)
                     output_file = os.path.join(self.output_dir, relative_dir, file.replace('.lua', '.h'))
 
-                    try:
-                        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-                        subprocess.check_call([self.luajit, '-b', lua_file, output_file, '-n', mod_name_c])
-                    except subprocess.CalledProcessError as e:
-                        print("Error compiling {}: {}".format(lua_file, e), file=sys.stderr)
-                        continue
+                    self.convert_lua(lua_file, output_file, mod_name_c)
 
                     self.info.append({
                         'lua_file': lua_file,
@@ -90,7 +92,7 @@ static void install_{mod_name_c}(lua_State *L)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert Lua to C header files for build library")
-    parser.add_argument("--luajit", default='luajit',help="luajit executable path")
+    parser.add_argument("--luajit", default='',help="luajit executable path")
     parser.add_argument("-m", "--mod", default='', help="module name prefix")
     parser.add_argument("input", help="input lua directory")
     parser.add_argument("output", help="output c library source directory")

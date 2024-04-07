@@ -4,7 +4,7 @@
 #include <luajit/lualib.h>
 #include <stdio.h>
 
-#include "lua2lib/install.h"
+#include "link_socket.h"
 
 
 extern int luaopen_socket_core(lua_State *L);

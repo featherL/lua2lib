@@ -4,98 +4,102 @@ import sys
 import subprocess
 
 
+class LuaJit:
+    def __init__(self, bin_path):
+        if '/' in bin_path:
+            self.bin_path = os.path.abspath(bin_path)
+            self.env = {'LUA_PATH': os.path.dirname(self.bin_path) + os.sep + '?.lua;;'}
+        else:
+            # search from PATH
+            self.bin_path = None
+            for p in os.environ.get('PATH').split(':'):
+                path = os.path.join(p, bin_path)
+                if os.path.exists(path):
+                    self.bin_path = path
+                    break
+
+            self.env = None
+
+    def compile(self, lua_file, mod_name):
+        try:
+            return subprocess.check_output([self.bin_path, '-b', lua_file, '-n', mod_name, '-t', 'raw', '-'], env=self.env)
+        except subprocess.CalledProcessError as e:
+            return None
+
+
+class LuaObject:
+    def __init__(self, file_path, byte_code, mode_name):
+        self.file_path = file_path
+        self.byte_code = byte_code
+        self.mode_name = mode_name
+
+
 class Lua2Lib:
-    def __init__(self, input_dir, output_dir, luajit, prefix=''):
-        self.input_dir = input_dir
-        self.output_dir = output_dir
-        self.luajit = luajit or '/usr/bin/luajit'
-        self.luajit = os.path.abspath(self.luajit)
-        self.lua_path = os.path.abspath(os.path.dirname(self.luajit)) if luajit else None
+    def __init__(self, input_dir, luajit='luajit', prefix=''):
+        self.input_dir = os.path.abspath(input_dir)
+        self.luajit = LuaJit(luajit)
         self.prefix = prefix
         self.info = []
 
-    def parse_filename(self, luafile):
-        relative_path = os.path.relpath(luafile, self.input_dir)
-        relative_dir = os.path.dirname(relative_path)
-        mod_name = relative_path.split('.')[0].replace(os.sep, '.')
-        mod_name_c = mod_name.replace('.', '_')
-        var_name = 'luaJIT_BC_{}'.format(mod_name_c)
-        var_size = '{}_SIZE'.format(var_name)
+    def byte_code_to_c_array(self, byte_code):
+        return '{' + ', '.join(["0x{:02X}".format(b) for b in byte_code]) + '}'
+    
 
-        return mod_name, mod_name_c, var_name, var_size, relative_dir
-    
-    def convert_lua(self, lua_file, output_file, mod_name_c):
-        try:
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            subprocess.check_call([self.luajit, '-b', lua_file, output_file, '-n', mod_name_c], env={'LUA_PATH': self.lua_path + os.sep + '?.lua;;'} if self.lua_path else None)
-        except subprocess.CalledProcessError as e:
-            print("Error compiling {}: {}".format(lua_file, e), file=sys.stderr)
-    
-    def parse(self):
+    def generate_code(self):
+        if not self.info:
+            self.compile_all()
+
+        code = '#include "linkin/linkin.h"\n\n'
+
+        vars_code = ''
+        var_template = 'static const unsigned char {}[] = {};\n\n'
+
+        install_code = 'static void {}_install_all(lua_State *L)\n{{\n'.format(self.prefix)
+
+        for obj in self.info:
+            var_name = self.prefix + '_' + obj.mode_name.replace('.', '_') + '_bc'
+            byte_code = self.byte_code_to_c_array(obj.byte_code)
+            vars_code += var_template.format(var_name, byte_code)
+
+            install_code += '    linkin_lib_add_by_code(L, "{}", {}, sizeof({}));\n'.format(obj.mode_name, var_name, var_name)
+
+        install_code += '}'
+
+        code += vars_code + install_code
+
+        return code
+
+    def compile_all(self):
         for root, _, files in os.walk(self.input_dir):
             for file in files:
                 if file.endswith('.lua'):
                     lua_file = os.path.join(root, file)
-                    
-                    mod_name, mod_name_c, var_name, var_size, relative_dir = self.parse_filename(lua_file)
-                    output_file = os.path.join(self.output_dir, relative_dir, file.replace('.lua', '.h'))
+                    relative_path = os.path.relpath(lua_file, self.input_dir)
+                    mod_name = os.path.splitext(relative_path)[0].replace(os.sep, '.')
+                    byte_code = self.luajit.compile(lua_file, mod_name)
 
-                    self.convert_lua(lua_file, output_file, mod_name_c)
+                    if not byte_code:
+                        print("Error compiling {}".format(lua_file), file=sys.stderr)
+                        continue
 
-                    self.info.append({
-                        'lua_file': lua_file,
-                        'mod_name': mod_name,
-                        'mod_name_c': mod_name_c,
-                        'var_name': var_name,
-                        'var_size': var_size,
-                        'output_file': output_file,
-                        'include_name': os.path.relpath(output_file, self.output_dir).replace(os.sep, '/')
-                    })
-
-                    print("Compiled {} to {}".format(lua_file, output_file))
-
-    def generate_c_code(self):
-        template = """
-#include "{include_name}"
-
-static void install_{mod_name_c}(lua_State *L)
-{{
-    linkin_lib_add_by_code(L, "{mod_name}", {var_name}, {var_size});
-}}
+                    self.info.append(LuaObject(lua_file, byte_code, mod_name))
 
 
-"""
 
-        header_content = '#include "linkin/linkin.h"\n'
-        header_installer = 'static void {}_install_all(lua_State *L)\n{{\n'.format(self.prefix)
-
-        for i in self.info:
-            mod_name = i['mod_name']
-            var_name = i['var_name']
-            var_size = i['var_size']
-            include_name = i['include_name']
-            mod_name_c = i['mod_name_c']
-
-            tmp = template.format(mod_name=mod_name, var_name=var_name, var_size=var_size, include_name=include_name, mod_name_c=mod_name_c)
-            header_content += tmp
-
-            header_installer += '    install_{mod_name_c}(L);\n'.format(mod_name_c=mod_name_c)
-        
-        header_content += header_installer + '}\n\n'
-
-        with open(os.path.join(self.output_dir, 'install.h'), 'w') as f:
-            f.write(header_content)
-    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert Lua to C header files for build library")
-    parser.add_argument("--luajit", default='',help="luajit executable path")
-    parser.add_argument("-m", "--mod", default='', help="module name prefix")
-    parser.add_argument("input", help="input lua directory")
-    parser.add_argument("output", help="output c library source directory")
+    parser.add_argument("--luajit", default='luajit',help="luajit executable path")
+    parser.add_argument("--prefix", default='',help="prefix for generated code")
+    parser.add_argument("inputdir", help="input lua directory")
+    parser.add_argument("output", help="output c header file")
     args = parser.parse_args()
 
-    l = Lua2Lib(args.input, args.output, args.luajit, args.mod)
-    l.parse()
-    l.generate_c_code()
+    l = Lua2Lib(args.inputdir, args.luajit, args.prefix)
+    code = l.generate_code()
 
+    if args.output == '-':
+        print(code)
+    else:
+        with open(args.output, 'w') as f:
+            f.write(code)
 

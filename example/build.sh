@@ -15,7 +15,7 @@ cd ./luasocket && ar rcs libluasocket.a *.o
 
 # then, convert luasocket *.lua to *.h
 cd $workdir
-python3 ../lua2lib.py --luajit luajit/luajit ./luasocket/installdir/share/lua/5.1/  ./lua2lib
+python3 ../lua2lib.py --luajit luajit/luajit ./luasocket/installdir/share/lua/5.1/  ./link_socket.h
 
 # finally, build dolua
 gcc -static -o dolua dolua.c ../linkin/linkin.c -I.. -I. -L./luajit -lluajit -lm -ldl -L./luasocket -lluasocket

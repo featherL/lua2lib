@@ -82,6 +82,12 @@ void linkin_install_searcher(lua_State *L)
     "end\n");
 }
 
+void linkin_install(lua_State *L)
+{
+    linkin_openlib(L);
+    linkin_install_searcher(L);
+}
+
 void linkin_lib_add_by_code(lua_State *L, const char *name, const void *code, size_t code_len)
 {
     // linkin.lib[name] = code

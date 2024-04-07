@@ -19,8 +19,7 @@ int main(int argc, char *argv[])
     lua_State *L = lua_open();
     luaL_openlibs(L);
 
-    linkin_openlib(L);  // add linkin to package.preload
-    linkin_install_searcher(L);  // add linkin.searcher to package.loaders/package.searchers
+    linkin_install(L);
 
     _install_all(L);  // install all luasocket *.lua
 
